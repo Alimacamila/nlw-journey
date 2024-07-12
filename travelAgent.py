@@ -4,6 +4,8 @@ from langchain_community.agent_toolkits.load_tools import load_tools
 from langchain.agents import create_react_agent, AgentExecutor
 from langchain import hub
 
+import json
+
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_community.vectorstores import Chroma
 import bs4
@@ -12,18 +14,16 @@ from langchain_text_splitters.character import RecursiveCharacterTextSplitter
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableSequence
 
-llm = ChatOpenAI(model="gpt-3.5-turbo")
+OPENAI_API_KEY = os.environ['OPENAI_API_KEY']
 
-query = """
-Vou viajar para Londres em agosto de 2024. Quero que faça um roteiro de viagem para mim com os eventos que irão ocorrer na data da viagem e com o preço da passagem de São Paulo para Londres.
-""" # Definir uma query de pesquisa
+llm = ChatOpenAI(model="gpt-3.5-turbo")
 
 # Isolar os métodos em uma função para o Agente de Pesquisa
 def reasearchAgent(query, llm):
     tools = load_tools(['ddg-search', 'wikipedia'], llm=llm)
     prompt = hub.pull("hwchase17/react")
     agent = create_react_agent (llm, tools, prompt) # Inicializar o agente
-    agent_executor = AgentExecutor(agent=agent, tools=tools, prompt=prompt, verbose=True)
+    agent_executor = AgentExecutor(agent=agent, tools=tools, prompt=prompt)
     webContext = agent_executor.invoke({"input": query})
     return webContext['output']
 
@@ -42,7 +42,6 @@ def loadData():
 def getRelevantDocs(query):
     retriever = loadData()
     relevant_documents = retriever.invoke(query)
-    print(relevant_documents)
     return relevant_documents
 
 # Montagem da resposta final do Prompt com os detalhes necessários 
@@ -72,4 +71,18 @@ def getResponse(query, llm):
     response = supervisorAgent(query, llm, webContext, relevant_documents)
     return(response)
 
-print(getResponse(query, llm).content)
+def lambda_handler(event, context):
+    # query = event.get("question")
+    body = json.loads(event.get('body', {}))
+    query = body.get('question', 'Parametro question não fornecido')
+    response = getResponse(query, llm).content
+    return {
+        "statusCode": 200,
+        "headers": {
+            "Content-Type": "applications/json"
+        },
+        "body": json.dumps({
+            "message": "Tarefa concluída com sucesso",
+            "details": response,
+        })
+    }
